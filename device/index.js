@@ -188,9 +188,24 @@ module.exports = function(options) {
   }
   else if (options.protocol === 'wss')
   {
-     //AWS access id and secret key must be available in environment
-     awsAccessId = process.env.AWS_ACCESS_KEY_ID;
-     awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
+  
+     if (!isUndefined(process.env.AWS_ACCESS_KEY_ID))
+	 {
+		awsAccessId = process.env.AWS_ACCESS_KEY_ID;
+	 }
+	 if (!isUndefined(process.env.AWS_SECRET_ACCESS_KEY))
+	 {
+		awsSecretKey = process.env.AWS_SECRET_ACCESS_KEY;
+	 }
+  
+     if (!isUndefined(options.awsAccessId))
+	 {
+		awsAccessId = options.awsAccessId;
+	 }
+	 if (!isUndefined(options.awsSecretKey))
+	 {
+		awsSecretKey = options.awsSecretKey;
+	 }
   
      if (isUndefined( awsAccessId ) || (isUndefined( awsSecretKey )))
      {
@@ -228,6 +243,12 @@ module.exports = function(options) {
         //
         var url = prepareWebsocketUrl( options, awsAccessId, awsSecretKey );
 
+		// needed for cognito authentication
+		if (!isUndefined(options.awsSessionToken))
+		{
+		url += "&X-Amz-Security-Token=" + encodeURIComponent(options.awsSessionToken);
+		}
+		
         if (options.debug === true) {
            console.log('using websockets, will connect to \''+url+'\'...');
         }
