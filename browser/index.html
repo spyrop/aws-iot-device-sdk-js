@@ -4,83 +4,44 @@
 console.log('start');
 var browser = require('browser');
 
+var thingName = null;
+
 AWS.config.region = 'eu-west-1'; // Region
 AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-		IdentityPoolId : 'eu-west-1:.....',
+		IdentityPoolId : 'eu-west-1:fa4f4221-3a4e-4f55-b62f-41da26ba0f9e',
 	});
 
 AWS.config.credentials.get(function (err) {
 	if (err == null) {
 		console.log(AWS.config.credentials);
-		startWithCreds();
+		connect();
 	} else {
 		console.log(err);
 	}
 });
 
-function startWithCreds() {
+var DEBUG = false
 
-processTest2( { 
-	Protocol:'wss', 
-	region:'eu-west-1', 
-	Host: '.......iot.eu-west-1.amazonaws.com', 
-	//awsAccessId: '',
-	awsAccessId: AWS.config.credentials.accessKeyId,
-	//awsSecretKey: '',
-	awsSecretKey: AWS.config.credentials.secretAccessKey,
-	awsSessionToken: AWS.config.credentials.sessionToken,
-	testMode: 1 } 
-);
+var id = Math.floor(Math.random() * 10) + 1;
+
+function start(thingsShadows) {
+/* register thingName */
+//thingShadows.register(
+//	thingName, { ignoreDeltas: false, operationTimeout: operationTimeout } );
+console.log('id: ' + id);
+
+thingsShadows.subscribe('/getcars/+');
+
+window.setInterval(function(){
+	var payload = {data: 'data from ' + id};
+	thingsShadows.publish('/getcars/' + id, JSON.stringify(payload));
+}, 10000);
 }
 
-//
-// Simulate the interaction of a mobile device and a remote thing via the
-// AWS IoT service.  The remote thing will be a dimmable color lamp, where
-// the individual RGB channels can be set to an intensity between 0 and 255.  
-// One process will simulate each side, with testMode being used to distinguish 
-// between the mobile app (1) and the remote thing (2).  The remote thing
-// will update its state periodically using an 'update thing shadow' operation,
-// and the mobile device will listen to delta events to receive the updated
-// state information.
-//
-
-function processTest2( args ) {
-//
-// Instantiate the thing shadow class.
-//
-const thingShadows = browser.thingShadow({
-  keyPath: args.privateKey,
-  certPath: args.clientCert,
-  caPath: args.caCert,
-  clientId: args.clientId,
-  region: args.region,
-  reconnectPeriod: args.reconnectPeriod,
-  protocol: args.Protocol,
-  port: args.Port,
-  host: args.Host,
-  debug: args.Debug,
-  awsAccessId: args.awsAccessId,
-  awsSecretKey: args.awsSecretKey,
-  awsSessionToken: args.awsSessionToken
-});
-
-//
-// Operation timeout in milliseconds
-//
-const operationTimeout = 10000;    
-
-const thingName = 'RGBLedLamp';
-
-var currentTimeout = null;
-
-//
-// For convenience, use a stack to keep track of the current client 
-// token; in this example app, this should never reach a depth of more 
-// than a single element, but if your application uses multiple thing
-// shadows simultaneously, you'll need some data structure to correlate 
-// client tokens with their respective thing shadows.
-//
-var stack = [];
+function onMessage(topic, payload, isown) {
+	if (isown) return;
+	console.log(payload.toString());
+}
 
 function genericOperation( operation, state )
 {
@@ -111,16 +72,104 @@ function genericOperation( operation, state )
    }
 }
 
-function generateRandomState() 
-{
-   var rgbValues={ red: 0, green: 0, blue: 0 };
+function set_events(thingShadows, _onconnect, _onmessage) {
+	thingShadows.on('connect', function() {
+		console.log('connected to things instance');
+		_onconnect(thingShadows);
+});
 
-   rgbValues.red   = Math.floor(Math.random() * 255);
-   rgbValues.green = Math.floor(Math.random() * 255);
-   rgbValues.blue  = Math.floor(Math.random() * 255);
+thingShadows.on('close', function() {
+    console.log('close');
+    thingShadows.unregister( thingName );
+});
 
-   return {state: { desired: rgbValues }};
+thingShadows.on('reconnect', function() {
+    console.log('reconnect');
+    handleConnections();
+});
+
+thingShadows.on('offline', function() {
+//
+// If any timeout is currently pending, cancel it.
+//
+    if (currentTimeout !== null) 
+    {
+       clearTimeout(currentTimeout);
+       currentTimeout=null;
+    }
+//
+// If any operation is currently underway, cancel it.
+//
+    while (stack.length) {
+       stack.pop();
+    }
+    console.log('offline');
+});
+
+thingShadows.on('error', function(error) {
+    console.log('error', error);
+});
+
+thingShadows.on('message', function(topic, payload) {
+	if (DEBUG)
+		console.log('message', topic, payload.toString());
+	var tokens = topic.split('/');
+	var last_token = tokens[tokens.length - 1];
+	_onmessage(topic, payload, last_token, last_token == id);
+});
+
+thingShadows.on('status', function(thingName, stat, clientToken, stateObject) {
+    handleStatus( thingName, stat, clientToken, stateObject );
+});
+
+thingShadows.on('delta', function(thingName, stateObject) {
+     handleDelta( thingName, stateObject );
+});
+
+thingShadows.on('timeout', function(thingName, clientToken) {
+     handleTimeout( thingName, clientToken );
+});
 }
+
+function connect() {
+
+thingShadows = browser.thingShadow({
+	keyPath: null,
+	certPath: null,
+	caPath: null,
+	reconnectPeriod: null,
+	protocol:'wss', 
+	region:'eu-west-1', 
+	host: 'a2kbykj60bmbfx.iot.eu-west-1.amazonaws.com', 
+	clientId: AWS.config.credentials.accessKeyId,
+	//awsAccessId: 'AKIAJOROMJTMN3HGGUKA',
+	awsAccessId: AWS.config.credentials.accessKeyId,
+	//awsSecretKey: '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',
+	awsSecretKey: AWS.config.credentials.secretAccessKey,
+	awsSessionToken: AWS.config.credentials.sessionToken,
+	testMode: 1 },
+	AWS.config.credentials.accessKeyId);
+
+thingName = AWS.config.credentials.accessKeyId;
+	
+set_events(thingShadows, start, onMessage);
+}
+
+//
+// Operation timeout in milliseconds
+//
+const operationTimeout = 10000;    
+
+var currentTimeout = null;
+
+//
+// For convenience, use a stack to keep track of the current client 
+// token; in this example app, this should never reach a depth of more 
+// than a single element, but if your application uses multiple thing
+// shadows simultaneously, you'll need some data structure to correlate 
+// client tokens with their respective thing shadows.
+//
+var stack = [];
 
 function mobileAppConnect()
 {
@@ -200,59 +249,6 @@ function handleTimeout( thingName, clientToken )
    }
 }
 
-thingShadows.on('connect', function() {
-    console.log('connected to things instance, registering thing name');
-    handleConnections();
-});
-
-thingShadows.on('close', function() {
-    console.log('close');
-    thingShadows.unregister( thingName );
-});
-
-thingShadows.on('reconnect', function() {
-    console.log('reconnect');
-    handleConnections();
-});
-
-thingShadows.on('offline', function() {
-//
-// If any timeout is currently pending, cancel it.
-//
-    if (currentTimeout !== null) 
-    {
-       clearTimeout(currentTimeout);
-       currentTimeout=null;
-    }
-//
-// If any operation is currently underway, cancel it.
-//
-    while (stack.length) {
-       stack.pop();
-    }
-    console.log('offline');
-});
-
-thingShadows.on('error', function(error) {
-    console.log('error', error);
-});
-
-thingShadows.on('message', function(topic, payload) {
-    console.log('message', topic, payload.toString());
-});
-
-thingShadows.on('status', function(thingName, stat, clientToken, stateObject) {
-    handleStatus( thingName, stat, clientToken, stateObject );
-});
-
-thingShadows.on('delta', function(thingName, stateObject) {
-     handleDelta( thingName, stateObject );
-});
-
-thingShadows.on('timeout', function(thingName, clientToken) {
-     handleTimeout( thingName, clientToken );
-});
-}
 
 
 function processTest( args ) {
