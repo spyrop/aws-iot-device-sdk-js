@@ -36,7 +36,7 @@ function deviceOp( thing, operation, arguments )
 
 }
 
-function set_events(thingShadows, _onconnect, _onmessage, rec) {
+function set_events(thingShadows, _onconnect, _onmessage, _reconnect) {
 	thingShadows.on('connect', function() {
 		console.log('connected to things instance');
 		_onconnect(thingShadows);
@@ -45,12 +45,12 @@ function set_events(thingShadows, _onconnect, _onmessage, rec) {
 thingShadows.on('close', function() {
     console.log('close');
     thingShadows.unregister( thingName );
-	set_events(thingShadows, _onconnect, _onmessage);
+	console.log('trying to reconnect');
+	_reconnect();
 });
 
 thingShadows.on('reconnect', function() {
     console.log('reconnect');
-	set_events(thingShadows, _onconnect, _onmessage);
 });
 
 thingShadows.on('offline', function() {
