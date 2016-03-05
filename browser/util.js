@@ -2,8 +2,10 @@ function button(id, func, value) {
 }
 
 function consolelog(mess) {
-	if (DEBUG_APP)
+	if (DEBUG_APP) {
+		//$('#logs').append(mess);
 		console.log(mess);
+	}
 }
 
 function button(id, func, value) {
@@ -27,6 +29,10 @@ function distance(lat1, lon1, lat2, lon2, unit) {
 			dist = dist * 0.8684
 		}
 		return dist
+}
+
+function findById(ar, id) {
+	return $.grep(ar, function(e){ return e.id == id; });
 }
 
 function assoc(data) {

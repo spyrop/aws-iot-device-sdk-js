@@ -64,18 +64,30 @@ function createMark(id, color) {
 	return mark;
 }
 
-function showPositionOnMap(id, position) {
-	grep_result = $.grep(marks, function(e){ return e.id == id; });
-	if (grep_result.length > 0) {
-		mark = grep_result[0];
+REACTMAP_NONE = -1;
+REACTMAP_CENTER = 1;
+REACTMAP_FITALLMARKS = 2;
+function showPositionOnMap(id, position, reactMap) {
+	i = findById(marks, id);
+	if (i.length > 0) {
+		mark = i[0];
 	}
 	else {
 		mark = createMark(id);
+		marks.push(mark);
 	}
 	
 	if (mark.accuracy != null)
 		mark.accuracy.setMap(null);
 
+	if (position.coords.latitude && typeof position.coords.latitude == 'string') {
+		position.coords.latitude = parseFloat(position.coords.latitude);
+	}
+	
+	if (position.coords.longitude && typeof position.coords.longitude == 'string') {
+		position.coords.longitude = parseFloat(position.coords.longitude);
+	}
+		
 	var latlng = new google.maps.LatLng(
 			position.coords.latitude,
 			position.coords.longitude);
@@ -95,8 +107,22 @@ function showPositionOnMap(id, position) {
 	mark.marker = new google.maps.Marker({map : map});
 	mark.marker.setPosition(latlng);
 	
-	if (map.getBounds() == null || !check_is_in_or_out(mark.marker))
-		map.setCenter(latlng);
+	if (!reactMap || reactMap == REACTMAP_FITALLMARKS) {
+		fitAllMarks();
+	}
+	else if (reactMap == REACTMAP_CENTER) {
+		if (map.getBounds() == null || !check_is_in_or_out(mark.marker))
+			map.setCenter(latlng);
+	}
+}
+
+function fitAllMarks() {
+	var bounds = new google.maps.LatLngBounds();
+	for (var i = 0; i < marks.length; i++) {
+		if (marks[i] != null)
+			bounds.extend(marks[i].marker.position);
+	}
+	map.fitBounds(bounds);
 }
 
 function check_is_in_or_out(marker){

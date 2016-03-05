@@ -13,11 +13,17 @@ var browser = require('browser');
 
 var thingName = null;
 
+
 AWS.config.region = 'eu-west-1'; // Region
 AWS.config.credentials = new AWS.CognitoIdentityCredentials({
 		IdentityPoolId : 'eu-west-1:fa4f4221-3a4e-4f55-b62f-41da26ba0f9e',
 	});
 
+	
+var lambda = new AWS.Lambda({
+			apiVersion : '2015-03-31',
+		});
+	
 AWS.config.credentials.get(function (err) {
 	if (err == null) {
 		consolelog(AWS.config.credentials);
@@ -33,6 +39,7 @@ var SIMULATE_MOVEMENT = false;
 var threshold_accuracy = 9999999;
 var myThing = null;
 var myPosition = null;
+var others = [];
 var map = null;
 
 var WATCH_OWN_POSITION = true;
@@ -57,7 +64,12 @@ function watchPosition() {
 		consolelog('fetching geolocation');
 		if (navigator.geolocation) {
 			watch_id = navigator.geolocation.watchPosition(
-					processOwnPosition, onError, getposition_params);
+				function (position) {
+					position = assoc(position);
+					consolelog('own position fetched');
+					processOwnPosition(position);
+					}, 
+				onError, getposition_params);
 		} else {
 			alert('no navigator.geolocation');
 		}
@@ -69,20 +81,34 @@ function onProgress() {}
 function onError(err) {
 		console.warn('ERROR(' + err.code + '): ' + err.message);
 	}
-
 	
 function messageFromOther(topic, payload, owner, isown) {
 	if (isown) return;
 	consolelog(payload.toString());
-	var data = JSON.parse(payload);
-	if (data.position) {
-		processPosition(data.position, null, 
+	var ppayload = JSON.parse(payload);
+	i = findById(others, owner);
+	other_prev_data = null;
+	
+	if (i.length > 0) {
+		other_prev_data = i[0].data;
+		other = i[0];
+		other.data = ppayload.data;
+	} else {
+		other = {id: owner, data: ppayload.data};
+		others.push(other);
+	}
+	
+	/* is there position on data */
+	if (other.data.position) {
+		consolelog('other position fetched');
+		processPosition(other.data.position, 
+			other_prev_data ? other_prev_data.position : null, 
 			function (reason, newPosition) {
 			if (reason == 'new')
 			{
-			consolelog('other position: ' + newPosition); 
+			consolelog('other position new : ' + newPosition); 
 			
-			showPositionOnMap(owner, newPosition, null);
+			showPositionOnMap(owner, newPosition, REACTMAP_NONE);
 			}
 			});
 		}
@@ -95,28 +121,27 @@ function processOwnPosition(position) {
 		{
 			consolelog('new own position: ' + newPosition); 
 			myPosition = newPosition;
-			publishPosition();
-			showPositionOnMap(-1, myPosition, marks[0]);
+			sendOwnPosition(function(position) {
+				showPositionOnMap(-1, position);
+			});
 		}
 	});
 }
 	
-function processPosition(position, positionPrev, callback, snapToRoad, simulate_driving) {
+function processPosition(position, positionPrev, callback) {
 		if (position == null)
 			return;
 
-		consolelog('new position fetched, processing')
+		consolelog('processing position')
 			
-		position = assoc(position);
-
 		/* simulate movement */
-		if (true) {
-			navigator.geolocation.clearWatch(watch_id);
-			/* simulate movement */
-			position.coords.latitude = position.coords.latitude + 0.00025;
-			position.coords.longitude = position.coords.longitude + 0.00015;
+		//if (true) {
+		//	navigator.geolocation.clearWatch(watch_id);
+		//	/* simulate movement */
+		//	position.coords.latitude = position.coords.latitude + 0.00025;
+		//	position.coords.longitude = position.coords.longitude + 0.00015;
 			//pos.lng = pos.lng + 0.0001 * path.length;
-		}
+		//}
 
 		var pos = {
 			lat : position.coords.latitude,
@@ -137,13 +162,7 @@ function processPosition(position, positionPrev, callback, snapToRoad, simulate_
 				return;
 			}
 
-			if (snapToRoad) {
-				notifyBackEnd(position, true, simulate_driving, processBackendResponse);
-			}
-			else
-			{
-				callback('new', position);
-			}
+			callback('new', position);
 
 		} else {
 			consolelog('not accurate position');
@@ -152,19 +171,19 @@ function processPosition(position, positionPrev, callback, snapToRoad, simulate_
 }
 
 
-function notifyBackEnd(position, snapToRoad, simulate_driving, callback) {
+function notifyBackEnd(myData, callback) {
 	
-	lambda_options = position;
-	lambda_options.snapToRoad = simulate_driving == null && snapToRoad;
-	lambda_options.sim = simulate_driving;
+	if (!myData.id) {
+		myData.id = thingName;
+	}
 	
 	var params = {
 		FunctionName : 'backend1',
-		Payload : JSON.stringify(lambda_options)
+		Payload : JSON.stringify(myData)
 	};
 	
 	var date1 = new Date();
-	
+	consolelog('sending own data to backend');
 	lambda.invoke(params, function (err, data) {
 		if (err) {
 			consolelog(err, err.stack);
@@ -178,21 +197,24 @@ function notifyBackEnd(position, snapToRoad, simulate_driving, callback) {
 	});
 }
 
-function initmap() {
-}
-
-function publishPosition() {
+function sendOwnPosition(callback) {
 	var payload = JSON.stringify({position: myPosition});
-	consolelog('payload length: ' + (encodeURI(payload).split(/%..|./).length - 1));
-	deviceOp(myThing, 'publish', ['/all/positions/' + thingName, payload]);
+	//consolelog('payload length: ' + (encodeURI(payload).split(/%..|./).length - 1));
+	notifyBackEnd({data: {position: myPosition}}, function(returned) { 
+		myPosition = returned.data.position;
+		if (callback) {
+			callback(myPosition);
+		}
+		});
 }
 	
 function start(thingsShadows) {
 /* register thingName */
 //thingShadows.register(
 //	thingName, { ignoreDeltas: false, operationTimeout: operationTimeout } );
+
 myThing = thingsShadows;
-deviceOp(myThing, 'subscribe', ['/all/positions/+', null]);
+deviceOp(myThing, 'subscribe', ['/all/data/+', null]);
 //thingsShadows.subscribe('/all/positions/+');
 
 init_geolocation();
@@ -225,6 +247,7 @@ thingShadows = browser.thingShadow({
 	AWS.config.credentials.identityId);
 
 thingName = AWS.config.credentials.identityId;
+$('#logs').append(thingName);
 
 set_events(thingShadows, start, messageFromOther, connect);
 }
@@ -247,7 +270,10 @@ set_events(thingShadows, start, messageFromOther, connect);
 <body>
 <div id='top'></div>
 <div id='map'></div>
+<div id='others'><div>
+<span id='logs'></span>
 <script>
-$('#top').append(button('publish_button', 'publishPosition()', 'Publish Position'));
+$('#top').append(button('publish_button', 'sendOwnPosition()', 'Publish Position'));
+$('#top').append(button('fitall_buttton', 'fitAllMarks()', 'Center Positions'));
 </script>
 </body>	
